@@ -7,11 +7,11 @@ import pickle
 nltk.download(['punkt', 'wordnet'])
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
-from sklearn.ensemble import AdaBoostClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from sklearn.multioutput import MultiOutputClassifier
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import GridSearchCV
 
@@ -24,13 +24,13 @@ def load_data(database_filepath):
 
     '''
     #load data from database 
-    engine = create_engine('sqlite:///'+database_filepath)
+    engine = create_engine('sqlite:///'+ database_filepath)
     df= pd.read_sql_table('messages', engine)
 
     #define features and target
     X = df.message
     Y = df[df.columns[4:]]
-    category_names = list(df.columns[4:])
+    category_names = Y.columns
 
     return X, Y, category_names
 
@@ -65,33 +65,26 @@ def build_model():
     pipeline = Pipeline([
         ('vect', CountVectorizer(tokenizer=tokenize)),
         ('tfidf', TfidfTransformer()),
-        ('clf', MultiOutputClassifier(AdaBoostClassifier()))
+        ('clf', MultiOutputClassifier(RandomForestClassifier()))
     ])
 
     #setting up parameters
     parameters = {
-        'vect__ngram_range': ((1, 1), (1, 2)),
-        'vect__max_df': (0.5, 0.75, 1.0),
-        'tfidf__use_idf': (True, False)
+        'clf__estimator__n_estimators': [10],
+        'clf__estimator__min_samples_split': [2],
     }
 
-    cv = GridSearchCV(pipeline, param_grid=parameters, verbose=2, n_jobs=-1)
-    return cv
+    model = GridSearchCV(pipeline, param_grid=parameters, n_jobs=4, verbose=2, cv=3)
+    return model
 
 
 def evaluate_model(model, X_test, Y_test, category_names):
     '''
-    This function calculates the precision, recall, and f1-score for each of category names
+    This function calculates the classification reports for each of category names
     '''
-    y_pred = model.predict(X_test)
-    y_pred_df = pd.DataFrame(y_pred, columns=category_names)
-    evaluation = {}
-    for column in Y_test.columns:
-        evaluation[column] = []
-        evaluation[column].append(precision_score(Y_test[column], y_pred_df[column]))
-        evaluation[column].append(recall_score(Y_test[column], y_pred_df[column]))
-        evaluation[column].append(f1_score(Y_test[column], y_pred_df[column]))
-    print(pd.DataFrame(evaluation))
+    Y_pred = model.predict(X_test)
+    class_report = classification_report(Y_test, Y_pred, target_names=category_names)
+    print(class_report)
 
 def save_model(model, model_filepath):
     pickle.dump(model, open(model_filepath, 'wb'))
